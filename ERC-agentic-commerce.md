@@ -66,7 +66,7 @@ Each job SHALL have at least:
 - `expiredAt` (uint256 timestamp)
 - `status` (Open | Funded | Submitted | Completed | Rejected | Expired)
 
-Payment SHALL use a single ERC-20 token (global for the contract or specified at creation). Implementations MAY support a per-job token; the specification only requires one token per contract.
+Payment SHALL use an ERC-20 token specified per job at creation. Each job's payment token is immutable once created.
 
 ### Optional provider (set later)
 
@@ -79,8 +79,8 @@ SHALL revert if `job.provider == address(0)` (provider MUST be set before fundin
 
 ### Core Functions
 
-- **createJob(provider, evaluator, expiredAt, description)**  
-Called by client. Creates job in Open with `client = msg.sender`, `provider`, `evaluator`, `expiredAt`, `description`. SHALL revert if `evaluator` is zero or `expiredAt` is not in the future. **Provider MAY be zero**; if so, client MUST call `setProvider` before `fund`. Returns `jobId`.
+- **createJob(provider, evaluator, expiredAt, description, paymentToken)**
+Called by client. Creates job in Open with `client = msg.sender`, `provider`, `evaluator`, `expiredAt`, `description`, `paymentToken`. SHALL revert if `evaluator` is zero, `paymentToken` is zero, or `expiredAt` is not in the future. **Provider MAY be zero**; if so, client MUST call `setProvider` before `fund`. Returns `jobId`.
 - **setBudget(jobId, amount)**  
 Called by client. Sets `job.budget = amount`. SHALL revert if job is not Open or caller is not client.
 - **fund(jobId)**  
@@ -121,7 +121,7 @@ Implementations SHOULD emit at least:
 ### Security
 
 - Reentrancy: Functions that transfer tokens SHALL be protected (e.g. reentrancy guard).
-- Tokens: Use SafeERC20 or equivalent for ERC-20.
+- Tokens: Use SafeERC20 or equivalent for ERC-20. Per-job payment tokens are immutable once the job is created.
 - Evaluator MUST be set at creation; if “client completes”, pass `evaluator = client`.
 
 ## Rationale
@@ -137,7 +137,7 @@ Implementations SHOULD emit at least:
 - Evaluator is trusted for completion and rejection once the job is Submitted; a malicious evaluator can complete or reject arbitrarily. Use reputation (e.g. ERC-8004) or staking for high-value jobs.
 - Once Funded, only the evaluator can reject, and only the provider can submit; the client cannot unilaterally withdraw, which protects the provider after they start work.
 - No dispute resolution or arbitration; reject/expire is final.
-- Single payment token per contract reduces attack surface; per-job tokens are an extension.
+- Per-job payment tokens allow flexible denomination but increase attack surface. Implementations SHOULD validate token addresses (e.g. allowlist of known tokens) and SHOULD NOT support fee-on-transfer or rebasing tokens, as the escrow accounting assumes the received amount equals the transferred amount.
 
 ## Copyright
 

@@ -30,13 +30,12 @@ contract AgenticCommerce is AccessControl, ReentrancyGuard {
         address client;
         address provider;
         address evaluator;
+        IERC20 paymentToken;
         string description;
         uint256 budget;
         uint256 expiredAt;
         JobStatus status;
     }
-
-    IERC20 public paymentToken;
     uint256 public platformFeeBP; // 10000 = 100%
     address public platformTreasury;
 
@@ -62,9 +61,8 @@ contract AgenticCommerce is AccessControl, ReentrancyGuard {
     error ZeroBudget();
     error ProviderNotSet();
 
-    constructor(address paymentToken_, address treasury_) {
-        if (paymentToken_ == address(0) || treasury_ == address(0)) revert ZeroAddress();
-        paymentToken = IERC20(paymentToken_);
+    constructor(address treasury_) {
+        if (treasury_ == address(0)) revert ZeroAddress();
         platformTreasury = treasury_;
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _grantRole(ADMIN_ROLE, msg.sender);
@@ -77,8 +75,9 @@ contract AgenticCommerce is AccessControl, ReentrancyGuard {
         platformTreasury = treasury_;
     }
 
-    function createJob(address provider, address evaluator, uint256 expiredAt, string calldata description) external returns (uint256 jobId) {
+    function createJob(address provider, address evaluator, uint256 expiredAt, string calldata description, address paymentToken_) external returns (uint256 jobId) {
         if (evaluator == address(0)) revert ZeroAddress();
+        if (paymentToken_ == address(0)) revert ZeroAddress();
         if (expiredAt <= block.timestamp + 5 minutes) revert ExpiryTooShort();
         jobId = ++jobCounter;
         jobs[jobId] = Job({
@@ -86,6 +85,7 @@ contract AgenticCommerce is AccessControl, ReentrancyGuard {
             client: msg.sender,
             provider: provider,
             evaluator: evaluator,
+            paymentToken: IERC20(paymentToken_),
             description: description,
             budget: 0,
             expiredAt: expiredAt,
@@ -124,7 +124,7 @@ contract AgenticCommerce is AccessControl, ReentrancyGuard {
         if (job.provider == address(0)) revert ProviderNotSet();
         if (job.budget == 0) revert ZeroBudget();
         job.status = JobStatus.Funded;
-        paymentToken.safeTransferFrom(job.client, address(this), job.budget);
+        job.paymentToken.safeTransferFrom(job.client, address(this), job.budget);
         emit JobFunded(jobId, job.client, job.budget);
     }
 
@@ -148,10 +148,10 @@ contract AgenticCommerce is AccessControl, ReentrancyGuard {
         uint256 fee = (amount * platformFeeBP) / 10000;
         uint256 net = amount - fee;
         if (fee > 0) {
-            paymentToken.safeTransfer(platformTreasury, fee);
+            job.paymentToken.safeTransfer(platformTreasury, fee);
         }
         if (net > 0) {
-            paymentToken.safeTransfer(job.provider, net);
+            job.paymentToken.safeTransfer(job.provider, net);
         }
         emit JobCompleted(jobId, msg.sender, reason);
         emit PaymentReleased(jobId, job.provider, net);
@@ -171,7 +171,7 @@ contract AgenticCommerce is AccessControl, ReentrancyGuard {
         JobStatus prev = job.status;
         job.status = JobStatus.Rejected;
         if ((prev == JobStatus.Funded || prev == JobStatus.Submitted) && job.budget > 0) {
-            paymentToken.safeTransfer(job.client, job.budget);
+            job.paymentToken.safeTransfer(job.client, job.budget);
             emit Refunded(jobId, job.client, job.budget);
         }
         emit JobRejected(jobId, msg.sender, reason);
@@ -184,7 +184,7 @@ contract AgenticCommerce is AccessControl, ReentrancyGuard {
         if (block.timestamp < job.expiredAt) revert WrongStatus();
         job.status = JobStatus.Expired;
         if (job.budget > 0) {
-            paymentToken.safeTransfer(job.client, job.budget);
+            job.paymentToken.safeTransfer(job.client, job.budget);
             emit Refunded(jobId, job.client, job.budget);
         }
         emit JobExpired(jobId);
